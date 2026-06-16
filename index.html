@@ -1,0 +1,153 @@
+<script>
+const APP_MIN_DATE = '2025-12-01';
+const APP_MAX_DATE = todayIso();
+
+// Using AllOrigins as the primary public proxy to bypass browser CORS blocks
+const RSS_PROXY_ENDPOINT = 'https://api.allorigins.win/raw?url=';
+
+const BASE_KEYWORDS = [
+  {term:'iFAST', locked:true},
+  {term:'IFAST corp', locked:true},
+  {term:'ifast corporation', locked:true},
+  {term:'奕丰', locked:true},
+  {term:'AIY', locked:true}
+];
+
+const GOOGLE_ALERTS_FEEDS = [
+  {id:'alert-ifast-corp', name:'Google Alert: iFAST Corp', url:'https://www.google.com/alerts/feeds/11677842603979558051/3923402147493048461', locked:true},
+  {id:'alert-yifeng', name:'Google Alert: 奕丰', url:'https://www.google.com/alerts/feeds/11677842603979558051/3923402147493051670', locked:true},
+  {id:'alert-ifast-global', name:'Google Alert: iFAST Global', url:'https://www.google.com/alerts/feeds/11677842603979558051/3923402147493048765', locked:true}
+];
+
+const DEFAULT_LANGUAGE_PACKS = [
+  {id:'en',name:'English',active:true,terms:['iFAST','IFAST corp','ifast corporation','AIY','AIY.SI','SGX:AIY'],context:['Singapore','SGX','finance','wealth management','digital bank','dividend','AUA'],portalHints:['businesstimes.com.sg','theedgesingapore.com','straitstimes.com','reuters.com','finance.yahoo.com']}
+];
+
+const DEFAULT_PORTALS = [
+  {id:'portal-1',name:'Lianhe Zaobao',url:'https://www.zaobao.com.sg/',sourceType:'Mainstream media',locked:true},
+  {id:'portal-2',name:'The Business Times',url:'https://www.businesstimes.com.sg/',sourceType:'Mainstream media',locked:true},
+  {id:'portal-3',name:'The Edge Singapore',url:'https://www.theedgesingapore.com/',sourceType:'Mainstream media',locked:true},
+  {id:'portal-4',name:'The Straits Times',url:'https://www.straitstimes.com/',sourceType:'Mainstream media',locked:true}
+];
+
+// --- Helper Functions ---
+function todayIso(date = new Date()) { const d = new Date(date.getTime() - date.getTimezoneOffset() * 60000); return d.toISOString().slice(0,10); }
+function parseIsoLocal(iso) { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso))) return null; const [y,m,d] = iso.split('-').map(Number); return new Date(y,m-1,d); }
+function compareIso(a,b){return String(a).localeCompare(String(b));}
+function domainFromUrl(url){try{return new URL(url).hostname.replace(/^www\./,'').toLowerCase();}catch{return '';}}
+function stripHtml(value){const doc=new DOMParser().parseFromString(String(value ?? ''),'text/html');return (doc.body.textContent || '').replace(/\s+/g,' ').trim();}
+function inferEntity(text){return text.toLowerCase().includes('bank') ? 'Business Subsidiary' : 'Group Level';}
+function inferSentiment(text){ if(text.toLowerCase().includes('growth') || text.toLowerCase().includes('profit')) return 'Positive'; return 'Neutral';}
+function formatDisplayDate(iso){return iso;}
+
+// --- Live RSS Sync Engine ---
+async function refreshRealLinks() {
+  const statusEl = document.getElementById('status');
+  statusEl.innerText = "Syncing Google RSS feeds via CORS Proxy...";
+  mediaItems = [];
+
+  for (let feed of GOOGLE_ALERTS_FEEDS) {
+    try {
+      // Wrapping the real URL inside our AllOrigins proxy URL endpoint
+      const targetUrl = RSS_PROXY_ENDPOINT + encodeURIComponent(feed.url);
+      const response = await fetch(targetUrl);
+      if (!response.ok) throw new Error("Fetch failed");
+      
+      const xmlText = await response.text();
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+      const entries = xmlDoc.querySelectorAll("entry, item");
+
+      entries.forEach(entry => {
+        let title = stripHtml(entry.querySelector("title")?.textContent || "");
+        
+        // Google Alerts appends the source name to titles, let's clean it up
+        let source = "Google Alerts";
+        if (title.includes(" - ")) {
+          const parts = title.split(" - ");
+          source = parts.pop();
+          title = parts.join(" - ");
+        }
+
+        let rawLink = entry.querySelector("link")?.getAttribute("href") || entry.querySelector("link")?.textContent || "";
+        
+        // Clean Google redirect links if necessary
+        if (rawLink.includes("url?q=")) {
+          rawLink = rawLink.split("url?q=")[1].split("&")[0];
+        }
+
+        let summary = stripHtml(entry.querySelector("content, description, summary")?.textContent || "");
+        let published = entry.querySelector("published, pubDate, updated")?.textContent || todayIso();
+        let formattedDate = todayIso(new Date(published));
+
+        if (rawLink && title) {
+          mediaItems.push({
+            id: 'item-' + Math.random().toString(36).substr(2, 9),
+            title: title,
+            url: rawLink,
+            summary: summary,
+            date: formattedDate,
+            source: source,
+            sourceType: 'Online news',
+            sentiment: inferSentiment(title + " " + summary),
+            entity: inferEntity(title + " " + summary)
+          });
+        }
+      });
+    } catch (err) {
+      console.error("Error reading feed:", feed.name, err);
+    }
+  }
+
+  statusEl.innerText = `Successfully loaded ${mediaItems.length} live search articles.`;
+  renderDashboard();
+}
+
+// --- Simplified UI Rendering Engine ---
+function renderDashboard() {
+  const archive = document.getElementById('archive');
+  const metrics = document.getElementById('metrics');
+  
+  if (mediaItems.length === 0) {
+    archive.innerHTML = `<div class="empty">No active articles returned. This might be because the public proxy is busy or feeds are refreshing. Try again in a moment!</div>`;
+    return;
+  }
+
+  // Render total volume metrics panel
+  metrics.innerHTML = `
+    <div class="metric"><div class="label">Total Monitored Volume</div><div class="value">${mediaItems.length}</div><div class="sub">Articles tracked</div></div>
+    <div class="metric"><div class="label">Positive Sentiment</div><div class="value positive">${mediaItems.filter(i=>i.sentiment==='Positive').length}</div></div>
+    <div class="metric"><div class="label">Neutral Sentiment</div><div class="value neutral">${mediaItems.filter(i=>i.sentiment==='Neutral').length}</div></div>
+    <div class="metric"><div class="label">Negative Sentiment</div><div class="value negative">${mediaItems.filter(i=>i.sentiment==='Negative').length}</div></div>
+  `;
+
+  // Render the data grid layout
+  archive.innerHTML = mediaItems.map(item => `
+    <div class="item">
+      <div class="date">${formatDisplayDate(item.date)}</div>
+      <div>
+        <h4>${escapeHtml(item.title)}</h4>
+        <p>${escapeHtml(item.summary)}</p>
+        <div class="tags">
+          <span class="tag type-online">${item.sourceType}</span>
+          <span class="tag ${item.sentiment.toLowerCase()}">${item.sentiment}</span>
+          <span class="tag">${item.entity}</span>
+        </div>
+      </div>
+      <div><a href="${item.url}" target="_blank" class="source">Open Link →</a></div>
+    </div>
+  `).join('');
+}
+
+function escapeHtml(str) { return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+// --- Hooking up Button Event Listeners ---
+document.getElementById('syncBtn').addEventListener('click', refreshRealLinks);
+
+// Initial setup setups
+document.getElementById('keywordSummary').innerHTML = BASE_KEYWORDS.map(k => k.term).join('<br>');
+document.getElementById('languageSummary').innerText = "English Active";
+document.getElementById('portalSummary').innerText = `${DEFAULT_PORTALS.length} Domains`;
+</script>
+</body>
+</html>
