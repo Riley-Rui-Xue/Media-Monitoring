@@ -18,7 +18,7 @@
 <body>
 <div class="app">
   <aside class="sidebar">
-    <div class="logo"><div class="mark">MS</div><div><h1>iFAST Media Sentinel</h1><span>Google News RSS + publisher-link resolver</span></div></div>
+    <div class="logo"><div class="mark">MS</div><div><h1>iFAST Media Sentinel</h1><span>Google News RSS + local backend resolver</span></div></div>
     <div class="navlabel">Monitoring scope</div>
     <div class="pill"><b>Keywords</b><small id="keywordSummary">Loading...</small></div>
     <div class="pill"><b>Date window</b><small id="windowLabel">1 Dec 2025 to today</small></div>
@@ -27,7 +27,7 @@
     <div class="pill"><b>Radar portals</b><small id="portalSummary">Loading...</small></div>
     <div class="navlabel">Important note</div>
     <div class="directive">This prototype uses Google Alerts RSS and Google News RSS through a public AllOrigins proxy. Google News aggregator links are skipped unless a real publisher URL can be confirmed.</div>
-    <div class="note">No localStorage/cache is used. Each browser session starts clean, and each successful refresh replaces the in-memory dataset with real fetched links only.</div>
+    <div class="note">No localStorage/cache is used. Start the local search server first, then each successful refresh replaces the in-memory dataset with real fetched links only.</div>
   </aside>
 
   <main class="main">
@@ -92,8 +92,12 @@ function todayIso(date = new Date()) {
 const APP_MIN_DATE = '2025-12-01';
 const APP_MAX_DATE = todayIso();
 
-// Public proxy for prototype testing. Production should replace this with a company backend.
-const PUBLIC_RSS_PROXY_ENDPOINT = 'https://api.allorigins.win/raw?url=';
+// Local backend/proxy. Run sentinel-search-server.js before clicking Refresh Real Links.
+// This avoids public proxy failures such as AllOrigins 522/408 timeouts.
+window.SENTINEL_SEARCH_API = window.SENTINEL_SEARCH_API || 'http://localhost:8787/search';
+window.SENTINEL_RSS_PROXY = window.SENTINEL_RSS_PROXY || 'http://localhost:8787/rss?url=';
+window.SENTINEL_URL_RESOLVER_API = window.SENTINEL_URL_RESOLVER_API || 'http://localhost:8787/resolve';
+const PUBLIC_RSS_PROXY_ENDPOINT = window.SENTINEL_RSS_PROXY;
 
 const BASE_KEYWORDS = [
   {term:'iFAST', locked:true},
